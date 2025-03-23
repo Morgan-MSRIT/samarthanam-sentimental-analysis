@@ -6,6 +6,10 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
 import re
 from google import genai
+from flask_cors import CORS, cross_origin
+from config.database import mongo, init_db
+from pymongo import MongoClient
+
 
 app = Flask(__name__)
 app.debug = True
@@ -13,12 +17,27 @@ from dotenv import load_dotenv, find_dotenv
 
 load_dotenv(find_dotenv())
 
+CORS(app, resources={r"/*": {
+    "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+    "methods": ["GET", "POST", "PUT", "OPTIONS"],
+    "allow_headers": ["Content-Type", "Authorization"],
+    "supports_credentials": True 
+}})
+
+
+# db connection
+app.config["MONGO_URI"] = os.getenv("MONGODB_URL")
+init_db(app)
+client = MongoClient(os.getenv("MONGODB_URL"))
+db = client["test"]
+feedback = db['feedback']
 
 
 
 def clean_text(text):
     text = re.sub(r'[^a-zA-Z ]', '', text)
     return text.strip().lower()
+
 
 def analyze_sentiment(text):
     cleaned_text = clean_text(text)
@@ -36,6 +55,7 @@ def analyze_sentiment(text):
 positive_data = []
 neutral_data = []
 negative_data = []
+
 
 def classify_sentiment(score, text):
     if score <= 40:
@@ -97,11 +117,17 @@ def get_summary_from_gemini(sampled_feedback, sampled_positive, sampled_neutral,
     print("\n\nResponse: ", response)
     return response
 
-@app.route("/sentiment-analysis", methods=['POST'])
-def analyze_feedback():
-    data = request.json.get('data', [])
 
-    # print("Data: ", data)
+
+@app.route("/")
+def index():
+    return "Hello, World!"
+
+@app.route("/feedback-analysis", methods=['POST'])
+def analyze_feedback():
+    _id = request.json.get('_id', [])
+
+    data = feedback.find({"event": _id})
     
     if not data:
         return jsonify({"error": "No feedback data provided"}), 400
@@ -113,17 +139,41 @@ def analyze_feedback():
         sentiment = classify_sentiment(sentiment_score, text)
         
         feedback_review = {
+            "_id": feedback.get('event', ''),
+            "feedback": text,
             "sentiment_score": sentiment_score,
             "sentiment": sentiment
         }
         analyzed_feedback.append(feedback_review)
-    # print("\n\nPositive Data: ", positive_data)
-    # print("\n\nNeutral Data: ", neutral_data)
-    # print("\n\nNegative Data: ", negative_data)
+
+
     sampled_feedback, sampled_positive, sampled_neutral, sampled_negative =  sample_feedback(positive_data, neutral_data, negative_data)
     feedback_summary = get_summary_from_gemini(sampled_feedback, sampled_positive, sampled_neutral, sampled_negative)
-    # print("\n\nFeedback Summary: ", feedback_summary)
-    return jsonify(analyzed_feedback)
+    return jsonify(feedback_summary)
+
+
+
+
+@app.route("/sentiment-analysis", methods=['POST'])
+def sentiment_analysis():
+    feedback = request.json.get('data', [])
+
+    # print("Data: ", data)
+    
+    if not feedback:
+        return jsonify({"error": "No feedback data provided"}), 400
+
+    analyzed_feedback = []
+    text = feedback.get('additionalInfo', '')
+    sentiment_score = analyze_sentiment(text)
+    sentiment = classify_sentiment(sentiment_score, text)
+    
+    feedback_review = {
+        "sentiment_score": sentiment_score,
+        "sentiment": sentiment
+    }
+
+    return jsonify(feedback_review)
 
 
 if __name__ == '__main__':
