@@ -123,12 +123,10 @@ def get_summary_from_gemini(sampled_feedback, sampled_positive, sampled_neutral,
 def index():
     return "Hello, World!"
 
-@app.route("/feedback-analysis", methods=['POST'])
+@app.route("/feedback-analysis", methods=['POST','OPTION'])
 def analyze_feedback():
-    _id = request.json.get('_id', [])
+    data = request.json.get('data', [])
 
-    data = feedback.find({"event": _id})
-    
     if not data:
         return jsonify({"error": "No feedback data provided"}), 400
 
@@ -149,7 +147,7 @@ def analyze_feedback():
 
     sampled_feedback, sampled_positive, sampled_neutral, sampled_negative =  sample_feedback(positive_data, neutral_data, negative_data)
     feedback_summary = get_summary_from_gemini(sampled_feedback, sampled_positive, sampled_neutral, sampled_negative)
-    return jsonify(feedback_summary)
+    return jsonify(feedback_summary.text)
 
 
 
@@ -170,7 +168,7 @@ def sentiment_analysis():
     
     feedback_review = {
         "sentiment_score": sentiment_score,
-        "sentiment": sentiment
+        "type": sentiment
     }
 
     return jsonify(feedback_review)
